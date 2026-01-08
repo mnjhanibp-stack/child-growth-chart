@@ -149,7 +149,7 @@ with col2:
 with col3:
     st.subheader("결과 요약")
     if (birth_date is None) or (measure_date is None):
-        st.info("생/article년월일과 측정일을 입력하면 자동으로 만나이(개월) 계산 및 그래프가 생성됩니다.")
+        st.info("생년월일과 측정일을 입력하면 자동으로 만나이(개월) 계산 및 그래프가 생성됩니다.")
         st.stop()
 
     age_months = months_between(birth_date, measure_date)
