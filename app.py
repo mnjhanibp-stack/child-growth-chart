@@ -11,7 +11,6 @@ HEIGHT_SHEET = "연령별 신장"
 BIRTH_WEIGHT_SHEET = "출생시 체중 백분위"
 
 def norm_cdf(z: float) -> float:
-    # Standard normal CDF via erf (no scipy dependency)
     return 0.5 * (1.0 + erf(z / sqrt(2.0)))
 
 def lms_z(x: float, L: float, M: float, S: float) -> float:
@@ -28,7 +27,7 @@ def load_tables():
     h = h[["성별", "만나이(개월)", "L", "M", "S"]].dropna()
     h["성별"] = h["성별"].astype(int)
     h["만나이(개월)"] = h["만나이(개월)"].astype(int)
-    for c in ["L","M","S"]:
+    for c in ["L", "M", "S"]:
         h[c] = pd.to_numeric(h[c], errors="coerce")
     h = h.dropna()
 
@@ -37,14 +36,13 @@ def load_tables():
     bw = bw[["성별", "만나이(개월)", "L", "M", "S"]].dropna()
     bw["성별"] = bw["성별"].astype(int)
     bw["만나이(개월)"] = bw["만나이(개월)"].astype(int)
-    for c in ["L","M","S"]:
+    for c in ["L", "M", "S"]:
         bw[c] = pd.to_numeric(bw[c], errors="coerce")
     bw = bw.dropna()
 
     return h, bw
 
 def get_lms_interpolated(df: pd.DataFrame, sex: int, months: float):
-    """Linear interpolation of L/M/S across months for a given sex."""
     sub = df[df["성별"] == sex].sort_values("만나이(개월)")
     m_min, m_max = int(sub["만나이(개월)"].min()), int(sub["만나이(개월)"].max())
     months_clamped = min(max(months, m_min), m_max)
@@ -70,7 +68,6 @@ def percentile_from_value(df: pd.DataFrame, sex: int, months: float, value: floa
     return norm_cdf(z) * 100.0
 
 def months_between(birth_date, measure_date) -> int:
-    # "완료된 개월 수" 기준: DATEDIF(...,"m")과 동일한 방식
     y = measure_date.year - birth_date.year
     m = measure_date.month - birth_date.month
     total = y * 12 + m
@@ -105,13 +102,14 @@ with col2:
     mother_h = st.number_input("엄마 키 (cm)", min_value=120.0, max_value=220.0, value=160.0, step=0.1, format="%.1f")
 
     st.subheader("설정")
-    end_age_years = st.selectbox("그래프 종료 나이", [16, 17, 18], index=0)
+    # ✅ 만 18세 기준으로 고정
+    end_age_years = 18
     end_month = int(end_age_years * 12)
 
     tick_step = st.selectbox("가로축 눈금 간격", ["12개월(1년)", "6개월"], index=0)
     tick_every = 12 if tick_step.startswith("12") else 6
 
-    st.caption("추가 커스터마이징(선 색/두께/문구)은 완성본 확인 후 조절해드릴게요.")
+    st.caption("완성본 확인 후 선/라벨/눈금/예측 방식은 더 다듬어드릴게요.")
 
 with col3:
     st.subheader("결과 요약")
@@ -122,16 +120,16 @@ with col3:
 
     age_months = months_between(birth_date, measure_date)
 
-    # Birth weight percentile (at 0 months in provided sheet)
+    # 출생체중 백분위 (0개월 기준)
     bw_pct = percentile_from_value(bw_df, sex, 0, float(birth_weight))
 
-    # Height percentile at current age
+    # 현재 키 백분위
     cur_pct = percentile_from_value(height_df, sex, age_months, float(current_height))
 
-    # Start percentile mapping rule (currently identity)
+    # 시작 백분위(현재는 출생체중 백분위 그대로 사용)
     start_pct = bw_pct
 
-    # Parent-based adult upper/lower height rules (as discussed)
+    # 부모키 규칙 (남/여)
     if sex == 1:  # boy
         upper_adult_h = mother_h + 13.0
         lower_adult_h = father_h - 13.0
@@ -139,41 +137,52 @@ with col3:
         upper_adult_h = father_h - 13.0
         lower_adult_h = mother_h + 13.0
 
+    # ✅ 만 18세 키를 백분위로 변환 (밴드 끝점)
     upper_end_pct = percentile_from_value(height_df, sex, end_month, float(upper_adult_h))
     lower_end_pct = percentile_from_value(height_df, sex, end_month, float(lower_adult_h))
 
     st.write(f"- 자동 계산된 만나이: **{ym_label(age_months)}** (총 {age_months}개월)")
     st.write(f"- 출생체중 백분위(엑셀 기준): **{bw_pct:.1f}백분위** → (그래프 시작 백분위로 사용)")
     st.write(f"- 현재 키 백분위(엑셀 기준): **{cur_pct:.1f}백분위**")
-    st.write(f"- 16세 기준 부모키 밴드(규칙 적용): 하한 키 **{lower_adult_h:.1f}cm**, 상한 키 **{upper_adult_h:.1f}cm**")
-    st.write(f"  - 하한(16세) 백분위: **{lower_end_pct:.1f}백분위**, 상한(16세) 백분위: **{upper_end_pct:.1f}백분위**")
+    st.write(f"- 18세 기준 밴드(규칙 적용): 하한 키 **{lower_adult_h:.1f}cm**, 상한 키 **{upper_adult_h:.1f}cm**")
+    st.write(f"  - 하한(18세) **{lower_end_pct:.1f}백분위**, 상한(18세) **{upper_end_pct:.1f}백분위**")
 
     st.divider()
-
     st.subheader("그래프")
+
     months = np.arange(0, end_month + 1)
 
-    # Child percentile path: linear from start->current, then hold constant
-    child_pct = np.empty_like(months, dtype=float)
+    # ✅ 초록선(아이 경로): '현재까지'만 생성
     if age_months <= 0:
-        child_pct[:] = start_pct
+        child_months = np.array([0])
+        child_pct = np.array([start_pct], dtype=float)
     else:
-        for i, m in enumerate(months):
-            if m <= age_months:
-                t = m / age_months
-                child_pct[i] = (1 - t) * start_pct + t * cur_pct
-            else:
-                child_pct[i] = cur_pct
+        child_months = np.arange(0, min(age_months, end_month) + 1)
+        # 출생(start) -> 현재(cur)까지 직선 보간
+        t = child_months / age_months
+        child_pct = (1 - t) * start_pct + t * cur_pct
 
-    # Upper/lower bands: linear from start percentile to end percentile
+    # ✅ 상/하한 밴드: 시작 백분위 -> 18세 끝 백분위로 직선
     upper_pct = start_pct + (upper_end_pct - start_pct) * (months / end_month)
     lower_pct = start_pct + (lower_end_pct - start_pct) * (months / end_month)
 
-    # Plot
     fig, ax = plt.subplots(figsize=(11, 5))
+
+    # 밴드
     ax.plot(months, upper_pct, linewidth=2, label="상한(빨간선)")
     ax.plot(months, lower_pct, linewidth=2, label="하한(파란선)")
-    ax.plot(months, child_pct, linewidth=2, label="아이 경로")
+
+    # ✅ 아이 경로(현재까지)
+    ax.plot(child_months, child_pct, linewidth=2, label="아이 경로(현재까지)")
+
+    # ✅ 현재 지점 별표(★)
+    ax.scatter([age_months], [cur_pct], marker="*", s=220, zorder=5, label="현재 지점")
+
+    # ✅ 18세 밴드 끝점 마커 + 라벨 (키cm + 백분위)
+    ax.scatter([end_month], [upper_end_pct], s=70, zorder=5)
+    ax.scatter([end_month], [lower_end_pct], s=70, zorder=5)
+    ax.text(end_month, upper_end_pct, f"  {upper_adult_h:.0f}cm / {upper_end_pct:.1f}%", va="center")
+    ax.text(end_month, lower_end_pct, f"  {lower_adult_h:.0f}cm / {lower_end_pct:.1f}%", va="center")
 
     ax.set_ylim(0, 100)
     ax.set_xlim(0, end_month)
@@ -183,9 +192,9 @@ with col3:
     ticks = np.arange(0, end_month + 1, tick_every)
     ax.set_xticks(ticks)
     ax.set_xticklabels([ym_label(int(t)) for t in ticks], rotation=0)
+
     ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.5)
     ax.legend(loc="upper left")
 
     st.pyplot(fig, clear_figure=True)
-
     st.caption("가로축 표기는 내부 '개월'을 '년/개월'로 변환해 표시합니다. (예: 87개월 → 7년 3개월)")
