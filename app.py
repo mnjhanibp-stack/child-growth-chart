@@ -1,5 +1,4 @@
 import os
-import urllib.request
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -20,49 +19,24 @@ END_AGE_YEARS = 18
 END_MONTH = END_AGE_YEARS * 12
 
 # =========================
-# 한글 폰트(범례/축 깨짐 방지)
-# - Streamlit Cloud에서 한글이 네모로 깨질 수 있어서
-#   나눔고딕 ttf를 없으면 자동 다운로드 후 적용
+# 한글 폰트 강제 적용 (깨짐 100% 해결)
+# - GitHub 저장소에 fonts/NanumGothic.ttf 를 반드시 올려주세요.
 # =========================
 def setup_korean_font():
-    # 1) 이미 시스템에 한글 폰트가 있으면 그걸 사용
-    preferred = [
-        "NanumGothic",
-        "Noto Sans CJK KR",
-        "Noto Sans KR",
-        "Malgun Gothic",
-        "AppleGothic",
-        "UnDotum",
-    ]
-    installed = {f.name for f in fm.fontManager.ttflist}
-    for name in preferred:
-        if name in installed:
-            plt.rcParams["font.family"] = name
-            plt.rcParams["axes.unicode_minus"] = False
-            return
-
-    # 2) 없으면 폰트 파일을 repo에 저장(런타임 다운로드)
-    fonts_dir = "fonts"
-    os.makedirs(fonts_dir, exist_ok=True)
-    font_path = os.path.join(fonts_dir, "NanumGothic.ttf")
-
-    if not os.path.exists(font_path):
-        # GitHub raw 다운로드 (안정적으로 쓰이는 경로)
-        url = "https://github.com/naver/nanumfont/blob/master/ttf/NanumGothic.ttf?raw=true"
+    font_path = os.path.join("fonts", "NanumGothic.ttf")
+    if os.path.exists(font_path):
         try:
-            urllib.request.urlretrieve(url, font_path)
+            fm.fontManager.addfont(font_path)
+            plt.rcParams["font.family"] = "NanumGothic"
+            plt.rcParams["axes.unicode_minus"] = False
+            return True
         except Exception:
-            # 다운로드 실패해도 앱은 계속 동작하게(한글 깨질 수는 있음)
-            return
+            return False
+    return False
 
-    try:
-        fm.fontManager.addfont(font_path)
-        plt.rcParams["font.family"] = "NanumGothic"
-        plt.rcParams["axes.unicode_minus"] = False
-    except Exception:
-        pass
-
-setup_korean_font()
+font_ok = setup_korean_font()
+if not font_ok:
+    st.warning("한글이 깨지면 GitHub 저장소에 `fonts/NanumGothic.ttf`를 추가해주세요. (fonts 폴더 포함)")
 
 # =========================
 # 수학/통계 유틸
@@ -169,14 +143,13 @@ with col2:
     father_h = st.number_input("아빠 키 (cm)", min_value=120.0, max_value=220.0, value=170.0, step=0.1, format="%.1f")
     mother_h = st.number_input("엄마 키 (cm)", min_value=120.0, max_value=220.0, value=160.0, step=0.1, format="%.1f")
 
-    st.subheader("설정")
-    st.caption("x축은 겹침 방지를 위해 '년(숫자)'만 표시합니다. (0~18)")
+    st.subheader("표시")
+    st.caption("x축은 겹침 방지를 위해 '나이(년)' 숫자(0~18)만 표시합니다.")
 
 with col3:
     st.subheader("결과 요약")
-
     if (birth_date is None) or (measure_date is None):
-        st.info("생년월일과 측정일을 입력하면 자동으로 만나이(개월) 계산 및 그래프가 생성됩니다.")
+        st.info("생/article년월일과 측정일을 입력하면 자동으로 만나이(개월) 계산 및 그래프가 생성됩니다.")
         st.stop()
 
     age_months = months_between(birth_date, measure_date)
@@ -188,46 +161,39 @@ with col3:
     # 현재 키 백분위(현재 월령 기준)
     cur_pct = percentile_from_value(height_df, sex, age_months, float(current_height))
 
-    # 그래프 시작 백분위: 출생체중 백분위 그대로 사용
+    # 그래프 시작 백분위
     start_pct = bw_pct
 
-    # =========================
     # ✅ 부모키 밴드 규칙 (원장님 규칙)
-    # - 남아: (아빠 그대로) vs (엄마 + 13)
-    # - 여아: (엄마 그대로) vs (아빠 - 13)
-    # 그리고 큰 값=유전키 상한(빨간선), 작은 값=유전키 하한(파란선)
-    # =========================
-    if sex == 1:  # 남아
+    # 남아: (아빠 그대로) vs (엄마+13)
+    # 여아: (엄마 그대로) vs (아빠-13)
+    # 큰 값=유전키 상한, 작은 값=유전키 하한
+    if sex == 1:
         cand1 = float(father_h)
         cand2 = float(mother_h) + 13.0
-    else:         # 여아
+    else:
         cand1 = float(mother_h)
         cand2 = float(father_h) - 13.0
 
-    upper_adult_h = max(cand1, cand2)  # 유전키 상한(키 cm)
-    lower_adult_h = min(cand1, cand2)  # 유전키 하한(키 cm)
+    upper_adult_h = max(cand1, cand2)
+    lower_adult_h = min(cand1, cand2)
 
-    # ✅ 만 18세에서의 백분위로 변환 (밴드 끝점)
     upper_end_pct = percentile_from_value(height_df, sex, END_MONTH, upper_adult_h)
     lower_end_pct = percentile_from_value(height_df, sex, END_MONTH, lower_adult_h)
 
     st.write(f"- 자동 계산 만나이: **{age_months//12}세 {age_months%12}개월** (총 {age_months}개월)")
-    st.write(f"- 출생체중 백분위(엑셀 기준): **{bw_pct:.1f}백분위**")
-    st.write(f"- 현재 키 백분위(엑셀 기준): **{cur_pct:.1f}백분위**")
-    st.write(f"- 18세 밴드 후보 키: **{cand1:.1f}cm** / **{cand2:.1f}cm**")
-    st.write(f"  - 유전키 하한: **{lower_adult_h:.1f}cm → {lower_end_pct:.1f}백분위**")
-    st.write(f"  - 유전키 상한: **{upper_adult_h:.1f}cm → {upper_end_pct:.1f}백분위**")
+    st.write(f"- 출생체중 백분위: **{bw_pct:.1f}백분위**")
+    st.write(f"- 현재 키 백분위: **{cur_pct:.1f}백분위**")
+    st.write(f"- 18세 유전키 후보: **{cand1:.1f}cm / {cand2:.1f}cm**")
+    st.write(f"  - 유전키 하한: **{lower_adult_h:.1f}cm → {lower_end_pct:.1f}%**")
+    st.write(f"  - 유전키 상한: **{upper_adult_h:.1f}cm → {upper_end_pct:.1f}%**")
 
     st.divider()
     st.subheader("그래프")
 
-    # x축: 0~18세(개월)
     months = np.arange(0, END_MONTH + 1)
 
-    # =========================
-    # ✅ 현재 성장(초록선): 현재까지 '만' 표시
-    # 출생(start_pct) -> 현재(cur_pct) 직선 보간
-    # =========================
+    # 현재 성장(초록선): 현재까지
     if age_months <= 0:
         child_months = np.array([0])
         child_pct = np.array([start_pct], dtype=float)
@@ -236,47 +202,40 @@ with col3:
         t = child_months / age_months
         child_pct = (1 - t) * start_pct + t * cur_pct
 
-    # =========================
-    # ✅ 유전키 밴드: 시작 백분위 -> 18세 끝 백분위 직선
-    # =========================
+    # 유전키 밴드: 시작 백분위 -> 18세 끝 백분위 직선
     upper_pct = start_pct + (upper_end_pct - start_pct) * (months / END_MONTH)
     lower_pct = start_pct + (lower_end_pct - start_pct) * (months / END_MONTH)
 
-    # =========================
-    # Plot
-    # =========================
     fig, ax = plt.subplots(figsize=(11, 5))
 
-    # ✅ 범례(legend) 이름 고정
+    # ✅ 범례 문구 3개 고정
     ax.plot(months, upper_pct, linewidth=2, label="유전키 상한")
     ax.plot(months, lower_pct, linewidth=2, label="유전키 하한")
     ax.plot(child_months, child_pct, linewidth=2, label="현재 성장")
 
-    # ✅ 현재 지점 별표(★) - 범례에 표시하지 않음
+    # ✅ 현재 지점 별표(범례 제외)
     ax.scatter([age_months], [cur_pct], marker="*", s=220, zorder=5, label="_nolegend_")
 
-    # 18세 밴드 끝점 마커 + 라벨(키/백분위)
+    # 18세 끝점 라벨(키/백분위)
     ax.scatter([END_MONTH], [upper_end_pct], s=70, zorder=5)
     ax.scatter([END_MONTH], [lower_end_pct], s=70, zorder=5)
     ax.text(END_MONTH, upper_end_pct, f"  {upper_adult_h:.0f}cm / {upper_end_pct:.1f}%", va="center")
     ax.text(END_MONTH, lower_end_pct, f"  {lower_adult_h:.0f}cm / {lower_end_pct:.1f}%", va="center")
 
-    # y축
+    # ✅ y축 라벨 수정
     ax.set_ylim(0, 100)
     ax.set_ylabel("키 백분위(%)")
 
-    # ✅ x축: '년 숫자'만 표시 (0~18)
-    year_ticks = np.arange(0, END_AGE_YEARS + 1)      # 0,1,2,...,18
-    month_ticks = year_ticks * 12                      # 0,12,24,...,216
+    # ✅ x축: 나이(년) 숫자만 표시
+    year_ticks = np.arange(0, END_AGE_YEARS + 1)
+    month_ticks = year_ticks * 12
     ax.set_xlim(0, END_MONTH)
     ax.set_xticks(month_ticks)
     ax.set_xticklabels([str(y) for y in year_ticks], rotation=0)
     ax.set_xlabel("나이(년)")
 
     ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.5)
-
-    # ✅ 범례 깨짐/복잡도 방지: 3개만, 고정 위치
     ax.legend(loc="upper left", frameon=True)
 
     st.pyplot(fig, clear_figure=True)
-    st.caption("x축은 겹침 방지를 위해 '나이(년)' 숫자로만 표시합니다. (0~18)")
+    st.caption("한글이 깨지면 `fonts/NanumGothic.ttf`가 저장소에 있는지 확인해주세요.")
