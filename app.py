@@ -236,9 +236,12 @@ with col3:
     ax.set_ylabel("키 백분위(%)")
     ax.set_xlabel("나이")
 
-    ticks = np.arange(0, END_MONTH + 1, tick_every)
-    ax.set_xticks(ticks)
-    ax.set_xticklabels([ym_label(int(t)) for t in ticks], rotation=0)
+    # ✅ x축을 "년 숫자"로만 표시 (0~18)
+    year_ticks = np.arange(0, END_AGE_YEARS + 1)          # 0,1,2,...,18
+    month_ticks = year_ticks * 12                          # 0,12,24,...,216
+    ax.set_xticks(month_ticks)
+    ax.set_xticklabels([str(y) for y in year_ticks], rotation=0)
+    ax.set_xlabel("나이(년)")
 
     ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.5)
     ax.legend(loc="upper left")
